@@ -15,6 +15,7 @@ export function StudentDashboard() {
   // Active food requests state
   const [pendingRequests, setPendingRequests] = useState<FoodRequest[]>([]);
   const [myActiveRequest, setMyActiveRequest] = useState<FoodRequest | null>(null);
+  const [votingRequestId, setVotingRequestId] = useState<string | null>(null);
 
   useEffect(() => {
     if (currentGroup) {
@@ -156,18 +157,19 @@ export function StudentDashboard() {
 
   /** Accept / Approve peer's food pickup request */
   const handleAcceptRequest = async (request: FoodRequest) => {
-    if (!profile || !currentGroup) return;
+    if (!profile || !currentGroup || votingRequestId) return;
     haptics.selection();
+    setVotingRequestId(request.id);
 
-    const currentApprovals: string[] = request.approvals || [];
-    if (currentApprovals.includes(profile.id)) return; // already voted
+    try {
+      const currentApprovals: string[] = request.approvals || [];
+      if (currentApprovals.includes(profile.id)) return; // already voted
 
-    const newApprovals = [...currentApprovals, profile.id];
+      const newApprovals = [...currentApprovals, profile.id];
 
-    // If 2 or more members accept -> APPROVE & RECORD FOOD EVENT!
-    if (newApprovals.length >= 2) {
-      haptics.success();
-      try {
+      // If 2 or more members accept -> APPROVE & RECORD FOOD EVENT!
+      if (newApprovals.length >= 2) {
+        haptics.success();
         // 1. Update request status
         await supabase
           .from('food_requests')
@@ -190,13 +192,9 @@ export function StudentDashboard() {
         await loadRequests();
         setToastMessage(`Verified pickup for ${request.student?.name?.split(' ')[0] || 'member'}!`);
         setTimeout(() => setToastMessage(null), 3000);
-      } catch (err: any) {
-        console.error(err);
-      }
-    } else {
-      // 1 approval recorded, waiting for second approval
-      haptics.light();
-      try {
+      } else {
+        // 1 approval recorded, waiting for second approval
+        haptics.light();
         await supabase
           .from('food_requests')
           .update({
@@ -205,23 +203,26 @@ export function StudentDashboard() {
           .eq('id', request.id);
 
         await loadRequests();
-      } catch (err: any) {
-        console.error(err);
       }
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setVotingRequestId(null);
     }
   };
 
   /** Decline / Reject peer's food pickup request */
   const handleDeclineRequest = async (request: FoodRequest) => {
-    if (!profile) return;
+    if (!profile || votingRequestId) return;
     haptics.medium();
-
-    const currentRejections: string[] = request.rejections || [];
-    if (currentRejections.includes(profile.id)) return;
-
-    const newRejections = [...currentRejections, profile.id];
+    setVotingRequestId(request.id);
 
     try {
+      const currentRejections: string[] = request.rejections || [];
+      if (currentRejections.includes(profile.id)) return;
+
+      const newRejections = [...currentRejections, profile.id];
+
       await supabase
         .from('food_requests')
         .update({
@@ -233,6 +234,8 @@ export function StudentDashboard() {
       await loadRequests();
     } catch (err: any) {
       console.error(err);
+    } finally {
+      setVotingRequestId(null);
     }
   };
 
@@ -274,8 +277,10 @@ export function StudentDashboard() {
             Action Required · Approvals ({pendingRequests.length})
           </p>
           {pendingRequests.map((req) => {
-            const hasVoted = req.approvals.includes(profile?.id || '');
-            const approvalsCount = req.approvals.length;
+            const hasApproved = (req.approvals || []).includes(profile?.id || '');
+            const hasDeclined = (req.rejections || []).includes(profile?.id || '');
+            const approvalsCount = (req.approvals || []).length;
+            const isProcessing = votingRequestId === req.id;
 
             return (
               <GlassCard
@@ -314,7 +319,7 @@ export function StudentDashboard() {
                   </span>
                 </div>
 
-                {hasVoted ? (
+                {hasApproved ? (
                   <div
                     style={{
                       background: 'rgba(52, 199, 89, 0.08)',
@@ -326,12 +331,27 @@ export function StudentDashboard() {
                       fontWeight: 600,
                     }}
                   >
-                    You accepted · Waiting for 1 more member
+                    You Accepted ✓ · Waiting for co-members
+                  </div>
+                ) : hasDeclined ? (
+                  <div
+                    style={{
+                      background: 'rgba(225, 29, 72, 0.08)',
+                      color: '#e11d48',
+                      padding: '0.5rem',
+                      borderRadius: '0.75rem',
+                      textAlign: 'center',
+                      fontSize: '0.78rem',
+                      fontWeight: 600,
+                    }}
+                  >
+                    You Declined ✕
                   </div>
                 ) : (
                   <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.2rem' }}>
                     <button
                       type="button"
+                      disabled={isProcessing}
                       onClick={() => handleAcceptRequest(req)}
                       style={{
                         flex: 2,
@@ -342,14 +362,16 @@ export function StudentDashboard() {
                         padding: '0.6rem 1rem',
                         fontSize: '0.84rem',
                         fontWeight: 600,
-                        cursor: 'pointer',
+                        cursor: isProcessing ? 'wait' : 'pointer',
+                        opacity: isProcessing ? 0.6 : 1,
                         transition: 'all 180ms ease',
                       }}
                     >
-                      Accept
+                      {isProcessing ? 'Verifying…' : 'Accept'}
                     </button>
                     <button
                       type="button"
+                      disabled={isProcessing}
                       onClick={() => handleDeclineRequest(req)}
                       style={{
                         flex: 1,
@@ -360,7 +382,8 @@ export function StudentDashboard() {
                         padding: '0.6rem 0.75rem',
                         fontSize: '0.84rem',
                         fontWeight: 600,
-                        cursor: 'pointer',
+                        cursor: isProcessing ? 'wait' : 'pointer',
+                        opacity: isProcessing ? 0.6 : 1,
                         transition: 'all 180ms ease',
                       }}
                     >
