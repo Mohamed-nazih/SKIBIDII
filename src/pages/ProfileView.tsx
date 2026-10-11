@@ -103,6 +103,74 @@ export function ProfileView() {
     }
   };
 
+  // Name editing
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedName, setEditedName] = useState('');
+  const [savingName, setSavingName] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
+
+  // Password reset request
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
+
+  const handleStartEditName = () => {
+    haptics.light();
+    setEditedName(profile?.name || '');
+    setNameError(null);
+    setIsEditingName(true);
+  };
+
+  const handleSaveName = async () => {
+    const trimmed = editedName.trim();
+    if (!trimmed) {
+      setNameError('Name cannot be empty.');
+      return;
+    }
+    if (!profile) return;
+
+    setSavingName(true);
+    setNameError(null);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ name: trimmed, updated_at: new Date().toISOString() })
+        .eq('id', profile.id);
+
+      if (error) throw error;
+
+      setProfile({ ...profile, name: trimmed });
+      setIsEditingName(false);
+      haptics.success();
+    } catch (err: any) {
+      console.error('Failed to update name:', err);
+      setNameError(err.message || 'Failed to update name.');
+      haptics.heavy();
+    } finally {
+      setSavingName(false);
+    }
+  };
+
+  const handleSendPasswordReset = async () => {
+    if (!profile?.email) return;
+    haptics.medium();
+    setResetLoading(true);
+    setResetMessage(null);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(profile.email, {
+        redirectTo: `${window.location.origin}/#type=recovery`,
+      });
+      if (error) throw error;
+      setResetMessage('Password reset link sent to your email.');
+      haptics.success();
+    } catch (err: any) {
+      console.error('Password reset error:', err);
+      setResetMessage(err.message || 'Failed to send reset link.');
+      haptics.heavy();
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
   const handleToggleHaptics = () => {
     const nextVal = !hapticsEnabled;
     setHapticsEnabled(nextVal);
@@ -288,9 +356,88 @@ export function ProfileView() {
           </div>
         )}
 
-        <h2 style={{ margin: '0 0 0.2rem', fontSize: '1.35rem', fontWeight: 700, color: '#1d1d1f', letterSpacing: '-0.02em' }}>
-          {profile?.name}
-        </h2>
+        {/* User Name with Inline Edit */}
+        {isEditingName ? (
+          <div style={{ margin: '0 0 0.75rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem' }}>
+            <div style={{ display: 'flex', gap: '0.4rem', width: '100%', maxWidth: 280 }}>
+              <input
+                type="text"
+                value={editedName}
+                onChange={(e) => setEditedName(e.target.value)}
+                placeholder="Enter your name"
+                className="glass-input"
+                style={{ textAlign: 'center', fontWeight: 600, fontSize: '1rem', padding: '0.45rem 0.75rem' }}
+                autoFocus
+              />
+            </div>
+            {nameError && (
+              <p style={{ margin: 0, fontSize: '0.72rem', color: '#e11d48', fontWeight: 600 }}>
+                {nameError}
+              </p>
+            )}
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.2rem' }}>
+              <button
+                type="button"
+                disabled={savingName}
+                onClick={handleSaveName}
+                style={{
+                  background: '#0071e3',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: 9999,
+                  padding: '0.3rem 0.85rem',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                {savingName ? 'Saving…' : 'Save'}
+              </button>
+              <button
+                type="button"
+                disabled={savingName}
+                onClick={() => setIsEditingName(false)}
+                style={{
+                  background: 'rgba(0,0,0,0.06)',
+                  color: '#86868b',
+                  border: 'none',
+                  borderRadius: 9999,
+                  padding: '0.3rem 0.85rem',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.45rem', margin: '0 0 0.2rem' }}>
+            <h2 style={{ margin: 0, fontSize: '1.35rem', fontWeight: 700, color: '#1d1d1f', letterSpacing: '-0.02em' }}>
+              {profile?.name}
+            </h2>
+            <button
+              type="button"
+              onClick={handleStartEditName}
+              title="Edit Name"
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: '0.2rem',
+                cursor: 'pointer',
+                color: '#0071e3',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+              }}
+            >
+              Edit
+            </button>
+          </div>
+        )}
+
         <p style={{ margin: '0 0 1rem', color: '#86868b', fontSize: '0.86rem' }}>
           {profile?.email}
         </p>
@@ -388,6 +535,44 @@ export function ProfileView() {
             }}
           />
         </button>
+      </GlassCard>
+
+      {/* ── Security: Password Reset ── */}
+      <GlassCard padding="md">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <p style={{ margin: 0, fontWeight: 600, fontSize: '0.92rem', color: '#1d1d1f', letterSpacing: '-0.01em' }}>
+              Change Password
+            </p>
+            <p style={{ margin: '0.15rem 0 0', fontSize: '0.74rem', color: '#86868b' }}>
+              Sends a secure password reset link to your email
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={resetLoading}
+            onClick={handleSendPasswordReset}
+            style={{
+              background: '#0071e3',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: 9999,
+              padding: '0.35rem 0.85rem',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              cursor: resetLoading ? 'wait' : 'pointer',
+              letterSpacing: '-0.01em',
+              flexShrink: 0,
+            }}
+          >
+            {resetLoading ? 'Sending…' : 'Send Link'}
+          </button>
+        </div>
+        {resetMessage && (
+          <p style={{ margin: '0.65rem 0 0', fontSize: '0.75rem', color: resetMessage.includes('sent') ? '#34c759' : '#e11d48', fontWeight: 500 }}>
+            {resetMessage}
+          </p>
+        )}
       </GlassCard>
 
       {/* Logout button */}
