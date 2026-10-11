@@ -10,6 +10,7 @@ export function StudentDashboard() {
   const [students, setStudents] = useState<StudentFoodStat[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [canceling, setCanceling] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Active food requests state
@@ -152,6 +153,33 @@ export function StudentDashboard() {
       setTimeout(() => setToastMessage(null), 3000);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  /** Cancels the requester's own pending food pickup request */
+  const handleCancelRequest = async () => {
+    if (!myActiveRequest || canceling) return;
+    haptics.medium();
+    setCanceling(true);
+    try {
+      const { error } = await supabase
+        .from('food_requests')
+        .delete()
+        .eq('id', myActiveRequest.id);
+
+      if (error) throw error;
+
+      setMyActiveRequest(null);
+      await loadRequests();
+      setToastMessage('Request canceled.');
+      setTimeout(() => setToastMessage(null), 2500);
+      haptics.light();
+    } catch (err: any) {
+      console.error('Failed to cancel request:', err);
+      setToastMessage(err.message || 'Could not cancel request');
+      setTimeout(() => setToastMessage(null), 3000);
+    } finally {
+      setCanceling(false);
     }
   };
 
@@ -438,9 +466,32 @@ export function StudentDashboard() {
                   fontSize: '0.76rem',
                   fontWeight: 700,
                   color: '#0071e3',
+                  marginBottom: '0.65rem',
                 }}
               >
                 <span className="doto-num">{myActiveRequest.approvals.length}</span>/2 accepted
+              </div>
+
+              <div>
+                <button
+                  type="button"
+                  disabled={canceling}
+                  onClick={handleCancelRequest}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#e11d48',
+                    fontSize: '0.74rem',
+                    fontWeight: 600,
+                    cursor: canceling ? 'wait' : 'pointer',
+                    padding: '0.2rem 0.6rem',
+                    borderRadius: 9999,
+                    transition: 'all 160ms ease',
+                    opacity: canceling ? 0.6 : 1,
+                  }}
+                >
+                  {canceling ? 'Canceling…' : 'Cancel Request'}
+                </button>
               </div>
             </div>
           ) : (

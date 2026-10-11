@@ -125,6 +125,7 @@ CREATE POLICY "fe_all_admin" ON public.food_events FOR ALL USING (is_admin());
 CREATE POLICY "fr_select" ON public.food_requests FOR SELECT USING (true);
 CREATE POLICY "fr_insert" ON public.food_requests FOR INSERT WITH CHECK (true);
 CREATE POLICY "fr_update" ON public.food_requests FOR UPDATE USING (true);
+CREATE POLICY "fr_delete" ON public.food_requests FOR DELETE USING (student_id = auth.uid() OR is_admin());
 
 -- ==========================================
 -- STEP 5: TRIGGER — auto-create profile and link to PG group
