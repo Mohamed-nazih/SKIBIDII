@@ -1,109 +1,134 @@
 /**
- * Haptic feedback utility using the Navigator Vibration API & Web Audio API fallback.
- * Provides Apple-like Taptic Engine sensation presets (light, medium, heavy, success, warning, selection).
- * Respects user's preference saved in localStorage.
+ * Apple Taptic Engine Simulation
+ * 
+ * Devices behave differently:
+ * 1. Android devices support `navigator.vibrate()`.
+ * 2. iOS Safari blocks `navigator.vibrate()` on web pages, but supports synthesized
+ *    transient audio impulses via Web Audio API once the user interacts with the page.
+ * 
+ * This engine unifies both:
+ * - Robust vibration patterns with sufficient duration for physical motors (30ms - 80ms)
+ * - Low-frequency transient pressure clicks for iOS/Safari simulating physical taptic feedback
  */
 
 const STORAGE_KEY = 'pg_food_haptics_enabled';
 
-// Web Audio API context for subtle acoustic click fallback on devices without vibration motors
 let audioCtx: AudioContext | null = null;
 
-function getAudioContext(): AudioContext | null {
-  if (typeof window === 'undefined') return null;
-  if (!audioCtx) {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (AudioContextClass) {
-      audioCtx = new AudioContextClass();
+function unlockAudioContext() {
+  if (typeof window === 'undefined') return;
+  try {
+    if (!audioCtx) {
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtxClass) {
+        audioCtx = new AudioCtxClass();
+      }
     }
+    if (audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(() => {});
+    }
+  } catch {
+    // Ignore
   }
-  if (audioCtx && audioCtx.state === 'suspended') {
-    audioCtx.resume().catch(() => {});
-  }
-  return audioCtx;
 }
 
-/** Play a subtle, clean Apple-like acoustic micro-tap */
-function playSubtleClick(frequency = 440, duration = 0.015, gainVal = 0.05) {
+// Automatically listen to first user gesture to unlock audio for iOS
+if (typeof window !== 'undefined') {
+  const unlockEvents = ['touchstart', 'touchend', 'click', 'keydown'];
+  const onFirstInteraction = () => {
+    unlockAudioContext();
+    unlockEvents.forEach(e => window.removeEventListener(e, onFirstInteraction));
+  };
+  unlockEvents.forEach(e => window.addEventListener(e, onFirstInteraction, { passive: true, once: true }));
+}
+
+/**
+ * Creates a synthetic Taptic impulse:
+ * Rapid low-frequency impulse with sudden decay to replicate physical feedback
+ */
+function playTapticImpulse(freq = 150, duration = 0.025, volume = 0.35) {
   try {
-    const ctx = getAudioContext();
-    if (!ctx) return;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
+    unlockAudioContext();
+    if (!audioCtx || audioCtx.state !== 'running') return;
+
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
 
     osc.type = 'sine';
-    osc.frequency.setValueAtTime(frequency, ctx.currentTime);
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + duration);
 
-    gain.gain.setValueAtTime(gainVal, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
 
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(audioCtx.destination);
 
     osc.start();
-    osc.stop(ctx.currentTime + duration);
+    osc.stop(audioCtx.currentTime + duration);
   } catch {
-    // Ignore audio errors
+    // Silently continue
+  }
+}
+
+function doVibrate(pattern: number | number[]) {
+  if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+    try {
+      navigator.vibrate(pattern);
+    } catch {
+      // Some browsers block vibration if not strictly user-initiated
+    }
   }
 }
 
 export const haptics = {
-  /** Check if haptics are currently enabled */
   isEnabled(): boolean {
     if (typeof window === 'undefined') return true;
     const val = localStorage.getItem(STORAGE_KEY);
     return val === null ? true : val === 'true';
   },
 
-  /** Set haptics enabled state */
   setEnabled(enabled: boolean) {
     if (typeof window === 'undefined') return;
     localStorage.setItem(STORAGE_KEY, String(enabled));
   },
 
-  /** Light impact — for navigation tab clicks, segmented controls */
+  /** Light impact — nav bar tabs, light toggles */
   light() {
     if (!this.isEnabled()) return;
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-      navigator.vibrate(10);
-    }
-    playSubtleClick(800, 0.01, 0.03);
+    doVibrate(25);
+    playTapticImpulse(220, 0.02, 0.25);
   },
 
-  /** Medium impact — for standard button clicks, selection toggle */
+  /** Medium impact — avatar selection, buttons, actions */
   medium() {
     if (!this.isEnabled()) return;
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-      navigator.vibrate(22);
-    }
-    playSubtleClick(500, 0.018, 0.05);
+    doVibrate(45);
+    playTapticImpulse(180, 0.03, 0.4);
   },
 
-  /** Heavy impact — for primary actions like "Taken" */
+  /** Heavy impact — "Taken" button, main action trigger */
   heavy() {
     if (!this.isEnabled()) return;
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-      navigator.vibrate([35, 10, 15]);
-    }
-    playSubtleClick(320, 0.03, 0.08);
+    doVibrate([55, 30, 45]);
+    playTapticImpulse(120, 0.045, 0.6);
   },
 
-  /** Success notification — double burst */
+  /** Success impact — double feedback burst */
   success() {
     if (!this.isEnabled()) return;
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-      navigator.vibrate([20, 40, 30]);
-    }
-    playSubtleClick(600, 0.02, 0.06);
-    setTimeout(() => playSubtleClick(900, 0.02, 0.06), 50);
+    doVibrate([35, 40, 50]);
+    playTapticImpulse(240, 0.025, 0.35);
+    setTimeout(() => {
+      playTapticImpulse(320, 0.03, 0.4);
+    }, 60);
   },
 
-  /** Selection change — ultra-light crisp click */
+  /** Selection change — subtle tap */
   selection() {
     if (!this.isEnabled()) return;
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-      navigator.vibrate(8);
-    }
-    playSubtleClick(1200, 0.008, 0.025);
+    doVibrate(18);
+    playTapticImpulse(260, 0.015, 0.2);
   },
 };
+
