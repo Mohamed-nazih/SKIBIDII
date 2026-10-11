@@ -101,7 +101,10 @@ export function Login() {
         email: email.trim().toLowerCase(),
         password,
         options: {
-          data: { name: name.trim() },
+          data: {
+            full_name: name.trim(),
+            name: name.trim(),
+          },
         },
       });
 
